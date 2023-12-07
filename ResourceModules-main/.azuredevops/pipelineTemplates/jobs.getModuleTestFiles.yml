@@ -1,0 +1,50 @@
+parameters:
+  # Pipeline-related parameters
+  poolName: '$(poolName)'
+  vmImage: '$(vmImage)'
+
+  # Logic-related parameters
+  modulePath: '$(modulePath)'
+
+##---------------------------------------------##
+## TEMPLATE LOGIC                              ##
+##---------------------------------------------##
+jobs:
+  - job: getModuleTestFiles
+    displayName: Get deployment test file paths
+    pool:
+      ${{ if ne(parameters.vmImage, '') }}:
+        vmImage: ${{ parameters.vmImage }}
+      ${{ if ne(parameters.poolName, '') }}:
+        name: ${{ parameters.poolName }}
+    steps:
+      - task: PowerShell@2
+        displayName: 'Get parameter files'
+        name: getModuleTestFilesTask
+        inputs:
+          targetType: inline
+          pwsh: true
+          script: |
+            # Get the list of parameter file paths
+            $moduleFolderPath = Join-Path '$(System.DefaultWorkingDirectory)' '${{ parameters.modulePath }}'
+            $testFilePaths = (Get-ChildItem -Path $moduleFolderPath -Recurse -Filter 'main.test.bicep').FullName | Sort-Object
+
+            $deploymentTestPaths = $testFilePaths | ForEach-Object {
+              $_.Replace($moduleFolderPath, '').Trim('\').Trim('/')
+            }
+
+            Write-Verbose 'Found module test files' -Verbose
+            $deploymentTestPaths | ForEach-Object { Write-Verbose "- [$_]" -Verbose }
+
+            $testTable = @{}
+            foreach ($deploymentTestPath in $deploymentTestPaths) {
+                $deploymentTestFileName = Split-Path (Split-Path $deploymentTestPath -Parent) -Leaf
+                $testTable[$deploymentTestFileName] += @{
+                    moduleTestFilePath = $deploymentTestPath
+                }
+            }
+
+            $deploymentTestPathsOutput = $testTable | ConvertTo-Json -Compress
+
+            Write-Host ('##vso[task.setVariable variable=moduleTests;isOutput=true]{0}' -f ($testTable | ConvertTo-Json -Compress))
+            Write-Verbose "Module test files: $deploymentTestPathsOutput" -Verbose
