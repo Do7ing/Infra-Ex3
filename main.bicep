@@ -1,22 +1,22 @@
 param acrName string 
+param location string 
 param appServicePlanName string
 param webAppName string ='zdakhqan-webapp'
-param location string = 'Sweden'
 param containerRegistryImageName string = 'flask-demo'
 param containerRegistryImageVersion string = 'latest'
-param DOCKER_REGISTRY_SERVER_USERNAME string 
-@secure()
-param DOCKER_REGISTRY_SERVER_PASSWORD string
-param DOCKER_REGISTRY_SERVER_URL string 
 
-module registry './ResourceModules-main/modules/container-registry/registry/main.bicep' = {
+param keyVaultName string
+param keyVaultSecretNameACRUsername string = 'acr-username'
+param keyVaultSecretNameACRPassword1 string = 'acr-password1'
+
+resource keyvault 'Microsoft.KeyVault/vaults@2023-02-01' existing = {
+  name: keyVaultName
+ }
+
+// Azure Container Registry module
+resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   name: acrName
-  params: {
-    name: acrName
-    location: location
-    acrAdminUserEnabled: true
-  }
-}
+ }
 
 module serverfarm './ResourceModules-main/modules/web/serverfarm/main.bicep' = {
   name: '${appServicePlanName}-deploy'
@@ -34,22 +34,28 @@ module serverfarm './ResourceModules-main/modules/web/serverfarm/main.bicep' = {
   }
 }
 
+// Azure Web App for Linux containers module
 module site './ResourceModules-main/modules/web/site/main.bicep' = {
-  name: 'siteModule'
+  name: webAppName
+  dependsOn: [
+    serverfarm
+    acr
+    keyvault
+  ]
   params: {
-    kind: 'app'
     name: webAppName
     location: location
-    serverFarmResourceId: resourceId('Microsoft.Web/serverfarms', appServicePlanName)
+    kind: 'app'
+    serverFarmResourceId: serverfarm.outputs.resourceId
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${acrName}.azurecr.io/${containerRegistryImageName }:${containerRegistryImageVersion}'
+      linuxFxVersion: 'DOCKER|${acrName}.azurecr.io/${containerRegistryImageName}:${containerRegistryImageVersion}'
       appCommandLine: ''
     }
-    appSettingsKeyValuePairs : {
+    appSettingsKeyValuePairs: {
       WEBSITES_ENABLE_APP_SERVICE_STORAGE: false
-      DOCKER_REGISTRY_SERVER_URL: DOCKER_REGISTRY_SERVER_URL 
-      DOCKER_REGISTRY_SERVER_USERNAME: DOCKER_REGISTRY_SERVER_USERNAME
-      DOCKER_REGISTRY_SERVER_PASSWORD: DOCKER_REGISTRY_SERVER_PASSWORD
     }
+    dockerRegistryServerUrl: 'https://${acrName}.azurecr.io'
+    dockerRegistryServerUserName: keyvault.getSecret(keyVaultSecretNameACRUsername)
+    dockerRegistryServerPassword: keyvault.getSecret(keyVaultSecretNameACRPassword1)
   }
 }
