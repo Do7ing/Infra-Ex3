@@ -12,7 +12,7 @@
         "value": "zdakhqan-appserviceplan"
       },
       "keyVaultName": {
-        "value": "zdakhqan-keyvault"
+        "value": "zdakhqan-kv"
       }
 
   }
